@@ -121,7 +121,7 @@ conda activate navdp
 pip install -r requirements.txt
 ```
 
-Please download the pretrained NavDP checkpoint (`.ckpt`) from the “https://drive.google.com/file/d/1m3dr3PKgKRADErC61y2aTneMOYWozljU/view?usp=drive_link” and put it in `third-party/NavDP/checkpoints/`.
+Please download the pretrained NavDP checkpoint (`.ckpt`) from the https://drive.google.com/file/d/1m3dr3PKgKRADErC61y2aTneMOYWozljU/view?usp=drive_link and put it in `third-party/NavDP/checkpoints/`.
 
 ---
 
