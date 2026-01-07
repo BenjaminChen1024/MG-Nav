@@ -29,12 +29,8 @@ Download precompiled Habitat-Sim package (example: Linux, py3.9, headless, bulle
 ```bash
 # Example:
 # habitat-sim-0.3.3-py3.9_headless_bullet_linux_*.conda
-conda install habitat-sim-0.3.3-py3.9_headless_bullet_linux_*.conda
+conda install habitat-sim-0.3.3-py3.9_headless_bullet_linux_acbe6f4922e68145e401e55c30f9dfea460a3f24.conda
 ```
-
-> ⚠️ **Important**  
-> Do NOT commit `.conda` packages to GitHub (file size > 100MB).  
-> Add `*.conda` to `.gitignore`.
 
 ### 3) Install Python Dependencies
 
@@ -43,7 +39,7 @@ pip install -r requirements.txt
 # You may need to manually resolve version conflicts
 ```
 
-### 4) Install Habitat-Lab (editable)
+### 4) Install Habitat-Lab
 
 ```bash
 cd third-party/habitat-lab
@@ -112,7 +108,7 @@ Then:
 
 ---
 
-## NavDP Setup
+### 3) NavDP Setup
 
 NavDP runs in a separate conda environment.
 
@@ -130,11 +126,7 @@ pip install -r requirements.txt
 
 ### 1) Exploration & Graph Construction
 
-Select the target scene in `construct_graph_total.py`, e.g.:
-
-```python
-"00810-CrMo8WxCyVb": "CrMo8WxCyVb"
-```
+Select the target scene in `construct_graph_total.py`, e.g. "00810-CrMo8WxCyVb": "CrMo8WxCyVb"
 
 Explore the environment:
 
@@ -145,12 +137,12 @@ CUDA_VISIBLE_DEVICES=0 python construct_graph_total.py --explore_map --semantic_
 Construct graphs (different floors / graph sizes):
 
 ```bash
-# Floor 0
+# Floor 0 & small node
 CUDA_VISIBLE_DEVICES=0 python construct_graph_total.py \
   --construct_graph --visualize_graph \
   --floor_idx 0 --min_dis 1.0 --radius 0.5
 
-# Floor 1
+# Floor 1 & large node
 CUDA_VISIBLE_DEVICES=0 python construct_graph_total.py \
   --construct_graph --visualize_graph \
   --floor_idx 1 --min_dis 1.5 --radius 0.8
@@ -163,7 +155,7 @@ conda activate navdp
 cd third-party/NavDP
 
 CUDA_VISIBLE_DEVICES=0 python baselines/navdp/navdp_server_geometry.py \
-  --port 6666 \
+  --port 6666 \ # you can set random ports as you need
   --checkpoint ./checkpoints/checkpoint-43956navdp-onlyproj.ckpt
 ```
 
