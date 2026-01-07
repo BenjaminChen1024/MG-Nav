@@ -23,9 +23,6 @@ conda activate mgnav
 
 ### 2) Install Habitat-Sim (headless + bullet)
 
-Follow the official Habitat installation instructions:
-- Habitat-Lab: https://github.com/facebookresearch/habitat-lab
-
 Download precompiled Habitat-Sim package (example: Linux, py3.9, headless, bullet):
 - https://anaconda.org/aihabitat/habitat-sim/files?version=0.3.3
 
