@@ -1379,6 +1379,80 @@ class ImageNavGraphRobot:
             "real_turn": int(real_turn_steps),
             "real_turn_direction": real_turn_direction
         }
+    
+    def align_to_goal_coarse_dinov2_real_robot(self,
+        obs,
+        goal_rgb,                # (H,W,3) 或等价RGB
+        step_deg: float = 30.0,  # 粗扫步长（会与TURN_ANGLE对齐）
+        prefer_left: bool = True,
+        verbose: bool = True,
+    ):
+        """
+        只做粗筛（DINOv2 global feature 余弦），转一圈采样，选最佳角度并对齐。
+        返回:
+        {
+        "step_deg": 对齐后的步长(度),
+        "scores":   每个朝向的分数列表,
+        "best_idx": 最优朝向的索引(0..steps_per_round-1),
+        "best_angle_deg": 最优相对角度（相对起始朝向，左转为正）
+        }
+        """
+        # 1) 拿到TURN_ANGLE并与之对齐
+        try:
+            turn_angle = self.args.turn_left
+        except Exception:
+            turn_angle = 10.0  # 兜底
+        step_deg_aligned, n_turns = self._nearest_multiple(step_deg, turn_angle)
+
+        # 2) 计算一圈采样次数，并转一圈采样
+        steps_per_round = int(round(360.0 / step_deg_aligned))
+        if steps_per_round <= 0:
+            steps_per_round = 1
+
+        obs_rgbs = []
+        # 设计为：先采样再转动，这样采到的是当前朝向
+        for _ in range(steps_per_round):
+            obs = env.sim.get_sensor_observations(0)
+            obs_rgbs.append(obs["rgb"])
+            self._turn(env, "left" if prefer_left else "right", n_turns)
+
+        # 经过steps_per_round次等步长旋转，朝向应回到起点（对齐后保证整数整圈）
+
+        # 3) 用DINOv2全局特征与goal算余弦分数
+        #scores = self._score_global_list(goal_rgb, obs_rgbs)
+        scores = self._score_patch_list(goal_rgb, obs_rgbs)
+        best_idx = int(np.argmax(scores))
+
+        # 4) 从“起始朝向”转到best_idx对应的朝向：选最少步数方向
+        left_steps  = best_idx
+        right_steps = steps_per_round - best_idx
+        real_turn_steps = 0
+        real_turn_direction = "left"
+        if right_steps < left_steps:
+            real_turn_steps = right_steps
+            real_turn_direction = "right"
+            # self._turn(env, "right", right_steps * n_turns)
+            final_angle_deg = - right_steps * step_deg_aligned
+        else:
+            real_turn_steps = left_steps
+            real_turn_direction = "left"
+            # self._turn(env, "left",  left_steps  * n_turns)
+            final_angle_deg = + left_steps  * step_deg_aligned
+
+        if verbose:
+            print(f"[CoarseAlign] step={step_deg_aligned}°, samples={steps_per_round}, "
+                f"best_idx={best_idx}, final≈{final_angle_deg:.1f}° "
+                f"(score={scores[best_idx]:.4f})")
+
+        return {
+            "step_deg": float(step_deg_aligned),
+            "scores":   [float(s) for s in scores],
+            "best_idx": best_idx,
+            "best_angle_deg": float(final_angle_deg),
+            "steps_per_round": int(steps_per_round),
+            "real_turn": int(real_turn_steps),
+            "real_turn_direction": real_turn_direction
+        }
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
