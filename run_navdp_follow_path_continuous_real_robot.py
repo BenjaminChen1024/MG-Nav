@@ -1106,308 +1106,243 @@ def main():
     )
 
     # === 🆕 场景遍历：对 SCENE_ID_MAP 中的每个场景独立跑一遍 ===
-    MEMORY_ROOT = "memory"
+    MEMORY_ROOT = "/nas_home/wangbo/vis_nav/real_robot_experiments/data/rosbag2_2025_12_24-21_12_52"
     # BASE_OUT = "/nas_home/wangbo/vis_nav/result_hm3d/all_finetuned_navdp_goal_match_baseline_m1.0_r0.5/question_scene"
     # BASE_OUT = "/nas_home/wangbo/vis_nav/result_hm3d/trainednavdp_goal_match_baseline_m1.0_r0.5/question_scene"
     # BASE_OUT = "/nas_home/wangbo/vis_nav/result_hm3d/goal_match_baseline_m1.0_r0.5/question_scene"
     BASE_OUT = f"result/trainednavdp_goal_match_baseline_m{args.min_dis}_r{args.radius}"
-    all_scenes_results = []  # 汇总每个 scene 的简报
 
-    skipped_scenes = []
-    single_floor_scenes = []
-    scene_items = list(SCENE_ID_MAP.items())
 
-    for scene_full_id, scene_short_id in tqdm(scene_items, desc="Processing scenes", ncols=100):
-        print(f"\n========== [SCENE] {scene_full_id} (short={scene_short_id}) ==========")
+    # === 🆕 动态切换本场景的输入/输出路径 & content_scenes ===
+    scene_mem_dir = "/nas_home/wangbo/vis_nav/real_robot_experiments/data/rosbag2_2025_12_24-21_12_52/rgbd_export"
+    args.graph_json  = os.path.join(scene_mem_dir, f"place_graph_min{args.min_dis}_radius{args.radius}.json")
+    args.explore_npz = os.path.join(scene_mem_dir, "explore_log.npz")
+    args.floor_json  = os.path.join(scene_mem_dir, "floor_data.json")
+    # 为该 scene 单独的输出目录
+    args.out_dir = os.path.join(MEMORY_ROOT, "result_nav", f"m{args.min_dis}_r{args.radius}")
+    os.makedirs(args.out_dir, exist_ok=True)
 
-        # === 🆕 动态切换本场景的输入/输出路径 & content_scenes ===
-        args.content_scenes = scene_short_id
-        scene_mem_dir = os.path.join(MEMORY_ROOT, scene_full_id)
-        args.graph_json  = os.path.join(scene_mem_dir, f"place_graph_min{args.min_dis}_radius{args.radius}_floor{args.floor_idx}.json")
-        args.explore_npz = os.path.join(scene_mem_dir, "explore_log.npz")
-        args.floor_json  = os.path.join(scene_mem_dir, "floor_data.json")
-        # 为该 scene 单独的输出目录
-        args.out_dir = os.path.join(BASE_OUT, f"floor_{args.floor_idx}", scene_full_id)
-        os.makedirs(args.out_dir, exist_ok=True)
 
-        skip_csv_path = os.path.join(BASE_OUT, f"floor_{args.floor_idx}", "skip_scene_no_floor.csv")
-        single_floor_csv_path = os.path.join(BASE_OUT, f"floor_{args.floor_idx}", "single_floor_scenes.csv")
-
-        floor_filtering = True
-        # 检查floor_json是否存在
-        if not os.path.exists(args.floor_json):
-            # ***** 打印警告信息时也使用 long_id *****
-            print(f"[WARN] 场景 {scene_full_id} 的 floor_json 不存在: {args.floor_json}")
-            print(f"跳过场景 {scene_full_id}")
-
-            skipped_scenes.append({
-            'scene_id': scene_full_id,
-            'reason': 'floor_json_not_found',
-            'file_checked': args.floor_json
-            })
-            continue
-
-        floor_range, num_floors = set_floor_filter_from_json(
-            floor_json_path=args.floor_json, 
-            floor_idx=args.floor_idx
-        )
-
-        if floor_range is False:
-            print(f"{args.floor_idx} is out of range, this scene has just {num_floors} layes")
-            continue
-        
-        # 打印楼层信息
-        if num_floors <= 1:
-            print(f"[场景{scene_full_id}] 单层场景，不进行楼层过滤")
-
-            single_floor_scenes.append({
-            'scene_id': scene_full_id,
-            'num_floors': num_floors,
-            'note': 'Single floor scene, no filtering applied'
-            })
-
-            # ★ 新增逻辑：如果是单层且我们要跑 floor_idx==1，则跳过
-            if int(args.floor_idx) >= 1:
-                print(f"[场景{scene_full_id}] 单层 + floor_idx={args.floor_idx} → 跳过此场景")
-                skipped_scenes.append({
-                    'scene_id': scene_full_id,
-                    'reason': f'single floor, skip due to floor{args.floor_idx}',
-                    'file_checked': args.floor_json
-                })
-                # 这里 env 已经创建了，记得关闭
-                try:
-                    env.close()
-                except Exception:
-                    pass
-                continue  # ← 直接跳过本场景
-
-            # 否则继续正常流程，只是关闭楼层过滤
-            floor_filtering = False
-
-        else:
-            print(f"[场景{scene_full_id}] 多层场景（共{num_floors}层），"
-                    f"当前评估第{args.floor_idx}层，过滤范围: {floor_range}")
-
-        # 1) 机器人 & 环境
-        robot = ImageNavGraphRobot(args,
-                                graph_json=args.graph_json,
-                                explore_npz=args.explore_npz,
-                                preload_gsam=preload_gsam2, 
-                                preload_dino=preload_dinov2)
-        env = get_objnav_env(args)
+    # 1) 机器人 & 环境
+    robot = ImageNavGraphRobot(args,
+                            graph_json=args.graph_json,
+                            explore_npz=args.explore_npz,
+                            preload_gsam=preload_gsam2, 
+                            preload_dino=preload_dinov2)
+    env = get_objnav_env(args)
 
 
 
-        # 判断数据里面有多少个episodes，避免episode设置过大而出错
-        try:
-            total_eps = len(env._dataset.episodes)
-        except Exception:
-            total_eps = args.eval_episodes  
+    # 判断数据里面有多少个episodes，避免episode设置过大而出错
+    try:
+        total_eps = len(env._dataset.episodes)
+    except Exception:
+        total_eps = args.eval_episodes  
 
-        num_to_run = min(args.eval_episodes, total_eps)
-        print("eval episode:", num_to_run)
+    num_to_run = min(args.eval_episodes, total_eps)
+    print("eval episode:", num_to_run)
 
-        controller = HabitatController(args, env)
-        control_steps = int(args.control_time * args.control_freq)
-        print(f"control fre: {args.control_freq}Hz, control_time: {args.control_time}s")
-        print(f"agent will execute {control_steps} steps for each trajectory!")
+    controller = HabitatController(args, env)
+    control_steps = int(args.control_time * args.control_freq)
+    print(f"control fre: {args.control_freq}Hz, control_time: {args.control_time}s")
+    print(f"agent will execute {control_steps} steps for each trajectory!")
 
-        results = []
-        result_id = 0
-        episode_save = []
+    results = []
+    result_id = 0
+    episode_save = []
 
-        stuck_episode = []
+    stuck_episode = []
 
-        for ep in range(num_to_run):
-            obs_init = env.reset()
+    for ep in range(num_to_run):
+        obs_init = env.reset()
 
-            if floor_filtering:
-                # ── 楼层过滤：先拿“真”起终点（世界坐标），不合楼层就跳过 ──
-                try:
-                    s_xyz, g_xyz = robot.get_true_start_goal_positions(env)  # 你已有此函数
-                except Exception as e:
-                    print(f"[Episode {ep}] get_true_start_goal_positions() failed: {e}")
-                    continue
-                
-                # 在楼层筛选这里做两个改动：
-                # 如果是最高一层，不做最高高度过滤
-                # 如果是最低一层，不做最低高度过滤
-                s_ok = robot.on_graph_floor(s_xyz[1])
-                g_ok = (g_xyz is None) or robot.on_graph_floor(g_xyz[1])  # 有的 image-goal 可能没有真坐标
-                if not (s_ok and g_ok):
-                    print(f"[Episode {ep}] skip (out of floor): "
-                        f"start_y={s_xyz[1]:.3f}, goal_y={'None' if g_xyz is None else f'{g_xyz[1]:.3f}'}, "
-                        f"allowed={robot.floor_filter}")
-                    continue
-                
-                episode_save.append(ep)
-
-            # ---------- 保存起点/目标图像（JPG） ----------
-            image_dir = os.path.join(args.out_dir, "start_goal_image")
-            os.makedirs(image_dir, exist_ok=True)
-            start_img = _ensure_uint8_rgb3(obs_init["rgb"])
-            Image.fromarray(start_img).save(os.path.join(image_dir, f"ep_{result_id:04d}_start.jpg"), quality=95)
-
-            goal_img = obs_init["instance_imagegoal"]  # 你在 ImageNavGraphRobot 里已有这个函数
-            goal_img = _ensure_uint8_rgb3(goal_img)
-            Image.fromarray(goal_img).save(os.path.join(image_dir, f"ep_{result_id:04d}_goal.jpg"), quality=95)
-
-            # ----------visualize the constructed graph on the specific scene ----------
-            # graph_only_path = os.path.join(args.out_dir, f"graph_only.png")
-            # if not os.path.exists(graph_only_path):
-            #     robot.visualize_graph_only(env, out_path=graph_only_path,
-            #                         show_nodes=True, show_edges=True)
-
-            #  ----------创建保存video的文件夹 ----------
-            vpath = os.path.join(args.out_dir, "videos", f"ep_{result_id:03d}.mp4") if args.record_video else None
-            os.makedirs(os.path.join(args.out_dir, "videos"), exist_ok=True)
-
-            #  ----------计算最短路径，计算spl ----------
+        if floor_filtering:
+            # ── 楼层过滤：先拿“真”起终点（世界坐标），不合楼层就跳过 ──
             try:
-                episode = env.current_episode
-                goal_pos = np.array(episode.goals[0].view_points[episode.goal_image_id].agent_state.position)
-                start_pos = np.array(episode.start_position)
-                shortest_path_length = env.sim.geodesic_distance(start_pos, goal_pos)
-                if shortest_path_length == float('inf') or shortest_path_length < 0:
-                    shortest_path_length = -1.0
+                s_xyz, g_xyz = robot.get_true_start_goal_positions(env)  # 你已有此函数
             except Exception as e:
-                print(f"[WARN] Failed to get geodesic distance: {e}")
+                print(f"[Episode {ep}] get_true_start_goal_positions() failed: {e}")
+                continue
+            
+            # 在楼层筛选这里做两个改动：
+            # 如果是最高一层，不做最高高度过滤
+            # 如果是最低一层，不做最低高度过滤
+            s_ok = robot.on_graph_floor(s_xyz[1])
+            g_ok = (g_xyz is None) or robot.on_graph_floor(g_xyz[1])  # 有的 image-goal 可能没有真坐标
+            if not (s_ok and g_ok):
+                print(f"[Episode {ep}] skip (out of floor): "
+                    f"start_y={s_xyz[1]:.3f}, goal_y={'None' if g_xyz is None else f'{g_xyz[1]:.3f}'}, "
+                    f"allowed={robot.floor_filter}")
+                continue
+            
+            episode_save.append(ep)
+
+        # ---------- 保存起点/目标图像（JPG） ----------
+        image_dir = os.path.join(args.out_dir, "start_goal_image")
+        os.makedirs(image_dir, exist_ok=True)
+        start_img = _ensure_uint8_rgb3(obs_init["rgb"])
+        Image.fromarray(start_img).save(os.path.join(image_dir, f"ep_{result_id:04d}_start.jpg"), quality=95)
+
+        goal_img = obs_init["instance_imagegoal"]  # 你在 ImageNavGraphRobot 里已有这个函数
+        goal_img = _ensure_uint8_rgb3(goal_img)
+        Image.fromarray(goal_img).save(os.path.join(image_dir, f"ep_{result_id:04d}_goal.jpg"), quality=95)
+
+        # ----------visualize the constructed graph on the specific scene ----------
+        # graph_only_path = os.path.join(args.out_dir, f"graph_only.png")
+        # if not os.path.exists(graph_only_path):
+        #     robot.visualize_graph_only(env, out_path=graph_only_path,
+        #                         show_nodes=True, show_edges=True)
+
+        #  ----------创建保存video的文件夹 ----------
+        vpath = os.path.join(args.out_dir, "videos", f"ep_{result_id:03d}.mp4") if args.record_video else None
+        os.makedirs(os.path.join(args.out_dir, "videos"), exist_ok=True)
+
+        #  ----------计算最短路径，计算spl ----------
+        try:
+            episode = env.current_episode
+            goal_pos = np.array(episode.goals[0].view_points[episode.goal_image_id].agent_state.position)
+            start_pos = np.array(episode.start_position)
+            shortest_path_length = env.sim.geodesic_distance(start_pos, goal_pos)
+            if shortest_path_length == float('inf') or shortest_path_length < 0:
                 shortest_path_length = -1.0
-
-            #  ----------推理并行走 ----------
-            ret, pred_traj, stuck_num = run_episode_with_graph(
-                obs_init,
-                env, robot, follower=controller,
-                rpc_host=args.rpc_host, rpc_port=args.rpc_port,
-                hfov_deg=args.image_hfov, success_distance=args.success_distance,
-                re_localize_every=args.re_localize_every,
-                max_total_steps=args.max_total_steps,
-                look_ahead_dist=args.look_ahead_dist,
-                control_steps = control_steps,
-                video_path=vpath,
-                stuck_check_steps=args.stuck_check_steps,
-                stuck_threshold=args.stuck_threshold,
-            )
-            print("controller reset")
-            controller.reset()
-
-            # 计算 SPL
-            if ret['success'] and shortest_path_length > 0:
-                spl = shortest_path_length / max(ret['path_length'], shortest_path_length)
-            else:
-                spl = 0.0
-
-            # 保存结果
-            result_dict = {
-                'success': ret['success'],
-                'steps': ret['steps'],
-                'spl': spl
-            }
-            results.append(result_dict)
-
-            result_id += 1
-
-            # 保存stuck超过最大次数的episode
-            if stuck_num >=5:
-                stuck_episode.append(result_id)
-
-            # 计算当前累计的 SR 和 SPL
-            current_sr = sum(r['success'] for r in results) / len(results)
-            current_spl = sum(r['spl'] for r in results) / len(results)
-            
-            print(f"[EP{result_id}] success={ret['success']}, steps={ret['steps']}, "
-                  f"SR={current_sr:.4f}, SPL={current_spl:.4f}")
-
-
-        # ========== 单个场景的结果汇总 ==========
-        if results:
-            scene_sr = sum(r['success'] for r in results) / len(results)
-            scene_spl = sum(r['spl'] for r in results) / len(results)
-        else:
-            scene_sr = 0.0
-            scene_spl = 0.0
-
-        # 写个最简 CSV
-        csv_path = os.path.join(args.out_dir, "metric.csv")
-        import csv
-        with open(csv_path, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(["episode", "success", "steps", "SR", "SPL"])
-
-            for i, r in enumerate(results):
-                w.writerow([i, r["success"], r["steps"], "", f"{r['spl']:.4f}"])
-            w.writerow([])
-            w.writerow(["OVERALL", "", "", f"{scene_sr:.4f}", f"{scene_spl:.4f}"])
-        
-        print(f"[场景 {scene_full_id}] SR={scene_sr:.4f}, SPL={scene_spl:.4f}")
-        print(f"[DONE] saved {csv_path}")
-
-        # 写一个episode总结
-        file_name = "episode_summary.txt"
-        output_path = os.path.join(args.out_dir, file_name)
-        floor_info = f"单层场景（不过滤）" if num_floors <= 1 else f"多层场景（共{num_floors}层），评估第{args.floor_idx}层"
-
-        content_to_write = f"""Scene: {args.content_scenes}
-        Total Episode: {num_to_run}
-        Floor: {args.floor_idx}
-        current floor episode: {result_id}
-        filtered episode: {episode_save}
-        SR: {scene_sr:.4f}
-        SPL: {scene_spl:.4f}
-        episode_stuck: {stuck_episode}
-        """
-
-        # 4. 写入文件
-        try:
-            with open(output_path, 'w') as f:
-                f.write(content_to_write)
-            print(f"✅ 实验episode文件已保存至: {output_path}")
-
-            # 添加到总体结果
-            all_scenes_results.append({
-                'scene': scene_full_id,
-                'episodes': result_id,
-                'sr': scene_sr,
-                'spl': scene_spl
-            })
         except Exception as e:
-            print(f"❌ 写入文件失败: {e}")
+            print(f"[WARN] Failed to get geodesic distance: {e}")
+            shortest_path_length = -1.0
 
-        if skipped_scenes:
-            print(f"\n[INFO] 共跳过 {len(skipped_scenes)} 个场景。正在写入记录到 {skip_csv_path}")
-            
-            # 确定 CSV 文件的列名（表头）
-            fieldnames = ['scene_id', 'reason', 'file_checked']
-            
-            try:
-                # 使用 'w' 模式写入文件，newline='' 防止空行
-                with open(skip_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-                    # 创建 DictWriter 对象，它可以处理字典列表
-                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)      
-                    # 写入表头
-                    writer.writeheader()    
-                    # 写入所有记录
-                    writer.writerows(skipped_scenes) 
-                print("[INFO] CSV 文件写入成功。")
-            except Exception as e:
-                print(f"[ERROR] 写入 CSV 文件失败: {e}")
+        #  ----------推理并行走 ----------
+        ret, pred_traj, stuck_num = run_episode_with_graph(
+            obs_init,
+            env, robot, follower=controller,
+            rpc_host=args.rpc_host, rpc_port=args.rpc_port,
+            hfov_deg=args.image_hfov, success_distance=args.success_distance,
+            re_localize_every=args.re_localize_every,
+            max_total_steps=args.max_total_steps,
+            look_ahead_dist=args.look_ahead_dist,
+            control_steps = control_steps,
+            video_path=vpath,
+            stuck_check_steps=args.stuck_check_steps,
+            stuck_threshold=args.stuck_threshold,
+        )
+        print("controller reset")
+        controller.reset()
 
-        if single_floor_scenes:
-            print(f"\n[INFO] 共识别 {len(single_floor_scenes)} 个单层场景。正在写入记录到 {single_floor_csv_path}")
-            # 确定 CSV 文件的列名（表头）
-            fieldnames = ['scene_id', 'num_floors', 'note']
-            try:
-                # 使用 'w' 模式写入文件
-                with open(single_floor_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(single_floor_scenes)  
-                print("[INFO] 单层场景 CSV 文件写入成功。")
-            except IOError as e:
-                print(f"[ERROR] 写入单层场景 CSV 文件失败: {e}")
+        # 计算 SPL
+        if ret['success'] and shortest_path_length > 0:
+            spl = shortest_path_length / max(ret['path_length'], shortest_path_length)
+        else:
+            spl = 0.0
 
-        # 清理环境
-        env.close()
+        # 保存结果
+        result_dict = {
+            'success': ret['success'],
+            'steps': ret['steps'],
+            'spl': spl
+        }
+        results.append(result_dict)
+
+        result_id += 1
+
+        # 保存stuck超过最大次数的episode
+        if stuck_num >=5:
+            stuck_episode.append(result_id)
+
+        # 计算当前累计的 SR 和 SPL
+        current_sr = sum(r['success'] for r in results) / len(results)
+        current_spl = sum(r['spl'] for r in results) / len(results)
+        
+        print(f"[EP{result_id}] success={ret['success']}, steps={ret['steps']}, "
+                f"SR={current_sr:.4f}, SPL={current_spl:.4f}")
+
+
+    # ========== 单个场景的结果汇总 ==========
+    if results:
+        scene_sr = sum(r['success'] for r in results) / len(results)
+        scene_spl = sum(r['spl'] for r in results) / len(results)
+    else:
+        scene_sr = 0.0
+        scene_spl = 0.0
+
+    # 写个最简 CSV
+    csv_path = os.path.join(args.out_dir, "metric.csv")
+    import csv
+    with open(csv_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["episode", "success", "steps", "SR", "SPL"])
+
+        for i, r in enumerate(results):
+            w.writerow([i, r["success"], r["steps"], "", f"{r['spl']:.4f}"])
+        w.writerow([])
+        w.writerow(["OVERALL", "", "", f"{scene_sr:.4f}", f"{scene_spl:.4f}"])
+    
+    print(f"[场景 {scene_full_id}] SR={scene_sr:.4f}, SPL={scene_spl:.4f}")
+    print(f"[DONE] saved {csv_path}")
+
+    # 写一个episode总结
+    file_name = "episode_summary.txt"
+    output_path = os.path.join(args.out_dir, file_name)
+    floor_info = f"单层场景（不过滤）" if num_floors <= 1 else f"多层场景（共{num_floors}层），评估第{args.floor_idx}层"
+
+    content_to_write = f"""Scene: {args.content_scenes}
+    Total Episode: {num_to_run}
+    Floor: {args.floor_idx}
+    current floor episode: {result_id}
+    filtered episode: {episode_save}
+    SR: {scene_sr:.4f}
+    SPL: {scene_spl:.4f}
+    episode_stuck: {stuck_episode}
+    """
+
+    # 4. 写入文件
+    try:
+        with open(output_path, 'w') as f:
+            f.write(content_to_write)
+        print(f"✅ 实验episode文件已保存至: {output_path}")
+
+        # 添加到总体结果
+        all_scenes_results.append({
+            'scene': scene_full_id,
+            'episodes': result_id,
+            'sr': scene_sr,
+            'spl': scene_spl
+        })
+    except Exception as e:
+        print(f"❌ 写入文件失败: {e}")
+
+    if skipped_scenes:
+        print(f"\n[INFO] 共跳过 {len(skipped_scenes)} 个场景。正在写入记录到 {skip_csv_path}")
+        
+        # 确定 CSV 文件的列名（表头）
+        fieldnames = ['scene_id', 'reason', 'file_checked']
+        
+        try:
+            # 使用 'w' 模式写入文件，newline='' 防止空行
+            with open(skip_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                # 创建 DictWriter 对象，它可以处理字典列表
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)      
+                # 写入表头
+                writer.writeheader()    
+                # 写入所有记录
+                writer.writerows(skipped_scenes) 
+            print("[INFO] CSV 文件写入成功。")
+        except Exception as e:
+            print(f"[ERROR] 写入 CSV 文件失败: {e}")
+
+    if single_floor_scenes:
+        print(f"\n[INFO] 共识别 {len(single_floor_scenes)} 个单层场景。正在写入记录到 {single_floor_csv_path}")
+        # 确定 CSV 文件的列名（表头）
+        fieldnames = ['scene_id', 'num_floors', 'note']
+        try:
+            # 使用 'w' 模式写入文件
+            with open(single_floor_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(single_floor_scenes)  
+            print("[INFO] 单层场景 CSV 文件写入成功。")
+        except IOError as e:
+            print(f"[ERROR] 写入单层场景 CSV 文件失败: {e}")
+
+    # 清理环境
+    env.close()
 
     # ========== 所有场景的总体汇总 ==========
     if all_scenes_results:
