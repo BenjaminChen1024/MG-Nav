@@ -55,7 +55,7 @@ _orig_hub = torch.hub.load
 
 def _patched_hub(repo_or_dir, model, *args, source="github", **kwargs):
     if isinstance(repo_or_dir, str) and (
-        "wangbo" in repo_or_dir or repo_or_dir.endswith("dinov2")
+        repo_or_dir.endswith("dinov2") or "/MG-Nav/" in repo_or_dir or "/BSC-Nav/" in repo_or_dir
     ):
         repo_or_dir = os.path.join(REPO, "third-party", "dinov2")
     return _orig_hub(repo_or_dir, model, *args, source=source, **kwargs)

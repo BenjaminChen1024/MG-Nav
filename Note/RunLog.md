@@ -24,7 +24,7 @@
 1. 新增 `Note/README.md`、`ReplicationNotes.md`、`ChangeLog.md`、`CodeSummary.md`
 2. `Note/results/launch_construct_graph.py` — 路径替换 + `torch.hub` 补丁
 3. `Note/results/launch_mg_nav.py` — HM3D 路径默认注入
-4. `wangbo_localization.py` — `localization` 的 shim（供 quick 脚本）
+4. `Note/results/repro_imports.py` — quick 入口 import 补丁（不新增含人名的模块文件）
 5. 待执行：数据软链、克隆第三方、conda 环境、NavDP 权重
 
 ### Git

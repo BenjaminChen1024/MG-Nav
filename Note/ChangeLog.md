@@ -7,7 +7,7 @@
 | 类型 | 路径 | 说明 |
 |------|------|------|
 | 新增 | `Note/**` | 复现文档与 launch 脚本 |
-| 新增 | `wangbo_localization.py` | 指向 `localization`，兼容 quick/real_robot 导入 |
+| 新增 | `Note/results/repro_imports.py` | launch 内将 quick 脚本 import 指到 `localization`（无根目录 shim 文件） |
 | 修改 | `.gitignore` | 增加 `data/`（本机软链不提交） |
 | 未改 | 上游 `*.py` | 路径与 5090 适配均放在 `Note/results/launch_*.py` |
 

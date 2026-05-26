@@ -13,7 +13,7 @@ MG-Nav 是 **两阶段 + 双环境** 系统，比 UniGoal/SG-Nav **更重**：
 2. **NavDP 服务**（独立 conda `navdp`，Python 3.10）：RPC 提供 point-goal 策略。
 3. **图导航评测**（`run_navdp_follow_path_continuous_total*.py`）：在 place graph 上规划，调用 NavDP 执行。
 
-上游代码含大量 **`/home/wangbo`、`/nas_dataset/wangbo`** 硬编码路径；**不修改 `.py`** 时，需用 `Note/results/launch_*.py` 做字符串替换或 CLI 覆盖。
+上游代码含大量**作者机绝对路径**（如 `/home/*/codes/...`、`/nas_dataset/*/`）；**不修改 `.py`** 时，需用 `Note/results/launch_*.py` 做字符串替换或 CLI 覆盖。
 
 **本日状态：环境尚未安装完成，链路未冒烟。**
 
@@ -80,7 +80,7 @@ flowchart LR
 ## 6. 已知坑（来自读码）
 
 1. **`construct_graph_total.py` 在 import 时加载 DINOv2/GSAM** — 权重路径必须在 launch 中替换。
-2. **`run_*_quick.py` 引用 `wangbo_localization`** — 仓库仅有 `localization.py`；已加 shim。
+2. **`run_*_quick.py` 使用非公开 localization 模块名** — 仓库仅有 `localization.py`；由 `launch_mg_nav.py` + `repro_imports.py` 在运行时改 import。
 3. **NavDP 必须先起服务**，否则 `socket` 连接失败。
 4. **GPU 占用**：UniGoal 长跑时避免与 MG-Nav 抢同卡（默认 launch 用 GPU 3）。
 

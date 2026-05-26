@@ -13,6 +13,9 @@ import runpy
 import sys
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, os.path.dirname(__file__))
+from repro_imports import patch_quick_nav_imports  # noqa: E402
+
 DATA_ROOT = os.environ.get(
     "MGNAV_DATA_ROOT",
     os.path.expanduser("~/data/processed/unigoal_datasets"),
@@ -38,11 +41,6 @@ if _use_quick:
 else:
     _target = "run_navdp_follow_path_continuous_total.py"
 
-# quick 版依赖 wangbo_localization；根目录已提供 shim
-if _use_quick and not os.path.isfile(os.path.join(REPO, "wangbo_localization.py")):
-    sys.stderr.write("缺少 wangbo_localization.py（应为 localization 的 shim）\n")
-    sys.exit(1)
-
 _defaults = []
 if "--HM3D_SCENE_PREFIX" not in sys.argv:
     _defaults.extend(["--HM3D_SCENE_PREFIX", HM3D_ROOT])
@@ -53,9 +51,14 @@ if "--HM3D_EPISODE_PREFIX" not in sys.argv:
     elif os.path.isfile(EPISODE_JSON):
         _defaults.extend(["--HM3D_EPISODE_PREFIX", EPISODE_JSON])
 
-# 插入到脚本名之前
 sys.argv[1:1] = _defaults
-
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "3")
 
-runpy.run_path(os.path.join(REPO, _target), run_name="__main__")
+_target_path = os.path.join(REPO, _target)
+if _use_quick:
+    with open(_target_path, "r", encoding="utf-8") as f:
+        _src = patch_quick_nav_imports(f.read())
+    _globs = {"__name__": "__main__", "__file__": _target_path, "__package__": None}
+    exec(compile(_src, _target_path, "exec"), _globs)
+else:
+    runpy.run_path(_target_path, run_name="__main__")
