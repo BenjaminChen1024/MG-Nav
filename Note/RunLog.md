@@ -27,6 +27,10 @@
 4. `wangbo_localization.py` — `localization` 的 shim（供 quick 脚本）
 5. 待执行：数据软链、克隆第三方、conda 环境、NavDP 权重
 
+### Git
+
+- `benjamin` → `git@github.com:BenjaminChen1024/MG-Nav.git`，`main` @ `babd181`（2026-05-26 推送）
+
 ### 待办
 
 - [x] `data_episode` → unigoal instance_imagenav
