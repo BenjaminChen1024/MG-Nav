@@ -18,7 +18,7 @@ from repro_imports import patch_quick_nav_imports  # noqa: E402
 
 DATA_ROOT = os.environ.get(
     "MGNAV_DATA_ROOT",
-    os.path.expanduser("~/data/processed/unigoal_datasets"),
+    os.path.expanduser("~/data/processed/mg-nav_datasets"),
 )
 HM3D_ROOT = os.path.join(DATA_ROOT, "scene_datasets", "hm3d_v0.2")
 EPISODE_JSON = os.path.join(

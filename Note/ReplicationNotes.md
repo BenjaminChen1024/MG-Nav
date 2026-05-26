@@ -1,93 +1,148 @@
-# MG-Nav 复现心得（2026-05-22 起）
+# MG-Nav 复现心得
 
-> 本机：**4× RTX 5090（sm_120）**；数据与 UniGoal 共用 `~/data/processed/unigoal_datasets`。  
-> 上游：[bo-wang-up/MG-Nav](https://github.com/bo-wang-up/MG-Nav)（arXiv:2511.22609）。
-
----
-
-## 1. 总体结论（当前阶段）
-
-MG-Nav 是 **两阶段 + 双环境** 系统，比 UniGoal/SG-Nav **更重**：
-
-1. **探索建图**（`construct_graph_total.py`）：DINOv2 + Grounded-SAM-2 + habitat-sim **0.3.3**，为每个场景生成 `memory/<scene_id>/`。
-2. **NavDP 服务**（独立 conda `navdp`，Python 3.10）：RPC 提供 point-goal 策略。
-3. **图导航评测**（`run_navdp_follow_path_continuous_total*.py`）：在 place graph 上规划，调用 NavDP 执行。
-
-上游代码含大量**作者机绝对路径**（如 `/home/*/codes/...`、`/nas_dataset/*/`）；**不修改 `.py`** 时，需用 `Note/results/launch_*.py` 做字符串替换或 CLI 覆盖。
-
-**本日状态：环境尚未安装完成，链路未冒烟。**
+> 本机：**4× RTX 5090（sm_120）**；数据根 `~/data/processed/mg-nav_datasets`。  
+> 上游：[bo-wang-up/MG-Nav](https://github.com/bo-wang-up/MG-Nav)（arXiv:2511.22609）。  
+> **操作流水**：[RunLog.md](./RunLog.md) · **环境**：[env/README.md](./env/README.md) · **代码**：[CodeSummary.md](./CodeSummary.md)
 
 ---
 
-## 2. 与 UniGoal / SG-Nav 的差异
+## 1. 总体结论（2026-05-26）
 
-| 项目 | MG-Nav | UniGoal（本机已跑通） |
-|------|--------|----------------------|
+| 阶段 | 状态 |
+|------|------|
+| 数据 + 权重 | ✓ 齐备 |
+| `mgnav` / `navdp` conda | ✓ `verify_setup.sh` 全绿 |
+| 5090 CUDA | ✓ 两环境均已用 **cu128** torch 验证 |
+| `memory/` 建图 | ✗ 未跑 |
+| 端到端导航评测 | ✗ 未跑 |
+
+MG-Nav 是 **探索建图 + NavDP RPC + 图规划** 三件套，比 UniGoal/SG-Nav 更重；上游大量**作者绝对路径**，本机用 `Note/results/launch_*.py` 规避改码。
+
+---
+
+## 2. 与 UniGoal / SG-Nav 差异
+
+| 项目 | MG-Nav | UniGoal（本机） |
+|------|--------|-----------------|
 | habitat-sim | **0.3.3** | 0.2.3 / 0.2.4 |
-| habitat-lab | 仓库内 `third-party` v3 系 | 旧版子模块 |
-| 额外模型 | DINOv2、SAM2.1、Grounding-DINO-tiny | SAM、GroundingDINO（GSA） |
-| 局部规划 | **NavDP**（第二环境 + checkpoint） | 内置 RL/启发式 |
-| 评测前置 | 需先 **per-scene 探索建图** | 直接 Instance-ImageNav |
+| habitat-lab | 仓库 `third-party` v3 | 旧子模块 |
+| 感知 | DINOv2 + SAM2.1 + GDINO-tiny | SAM + GroundingDINO 等 |
+| 局部规划 | **NavDP**（独立 conda + ckpt） | 内置策略 |
+| 评测前置 | 每场景 **`memory/<scene>/`** | 可直接 ImageNav |
 
 ---
 
-## 3. 数据与配置
+## 3. RTX 5090（sm_120）— 必改项
 
-### 3.1 已有（复用 UniGoal）
+上游 README / `requirements.txt` 按 **torch 2.6+cu124**（mgnav）、**2.2.2+cu121**（navdp）编写，在 5090 上会出现：
 
-- HM3D val 场景：`scene_datasets/hm3d_v0.2/val/<scene_id>/*.basis.glb`
-- Episode：`instance_imagenav/hm3d/v3/val/val.json.gz`（1000 ep）
+```text
+NVIDIA GeForce RTX 5090 ... not compatible ...
+RuntimeError: no kernel image is available for execution on the device
+```
 
-### 3.2 仍缺
+| 环境 | 上游锁定 | 本机实测可用 |
+|------|----------|--------------|
+| `mgnav` | torch 2.6.0+cu124 | **2.8.0+cu128** |
+| `navdp` | torch 2.2.2+cu121 | **2.11.0+cu128** |
 
-| 资源 | 用途 | 获取方式 |
-|------|------|----------|
-| `hm3d_annotated_basis.scene_dataset_config.json` | 语义 / 建图 | Matterport `hm3d-val-semantic-configs-v0.2.tar` 解压到 `hm3d_v0.2/` |
-| `third-party/dinov2` | 全局特征 | `git clone` facebookresearch/dinov2 |
-| `third-party/Grounded-SAM-2` | 检测分割 | IDEA-Research/Grounded-SAM-2 + 权重 |
-| NavDP `.ckpt` | RPC 服务 | README Google Drive 链接 |
-| `memory/<scene>/` | 导航 | 本地跑探索建图生成 |
+安装脚本 `Note/env/scripts/install_*_safe.sh` 已在末尾强制 cu128；**勿**在 navdp 里仅 `pip install -r requirements.txt` 而不升级 torch。
 
----
+**附带约束**：
 
-## 4. 本机环境路线（计划）
-
-| 环境 | Python | 关键依赖 |
-|------|--------|----------|
-| `mgnav` | 3.9 | habitat-sim **0.3.3** headless+bullet、torch **2.6**（requirements）、habitat-lab editable |
-| `navdp` | 3.10 | torch 2.2.2、Flask RPC（`third-party/NavDP/baselines/navdp`） |
-
-5090 注意：与 UniGoal 相同，优先 **torch 2.x + cu12.8**；若 0.3.3 预编译包仅 cu12.4，先按 README 安装再测 `torch.cuda`。
+- habitat-sim 要求 `numpy==1.26.4`、`pillow==10.4.0` — torch 升级后必须重 pin
+- navdp 升级 torch 后须 `numpy==1.26.0`，否则 opencv 与 numpy2 冲突
+- navdp 需额外 **`einops`**（不在原 requirements.txt）
 
 ---
 
-## 5. 推荐执行顺序
+## 4. 仍存在的复现风险
+
+### 4.1 代码与 Python 版本
+
+| 问题 | 影响 | 缓解 |
+|------|------|------|
+| `dinov2` main 使用 py3.10 语法 | mgnav 为 py3.9，hub 加载失败 | `launch_construct_graph.py` + 已 patch 的 `dinov2/layers/*.py` |
+| `import habitat_sim` 后再 `import clip` | 段错误 | 先 clip；construct 通常不用 clip |
+| `construct_graph_total.py` 顶层加载大模型 | import 即占 GPU | 用空闲 GPU；避免与 UniGoal 抢卡 |
+| `run_*_quick.py` 引用 `wangbo_localization` | ImportError | `launch_mg_nav.py` + `repro_imports.py` |
+
+### 4.2 第三方安装不完整
+
+| 组件 | 现象 | 建议 |
+|------|------|------|
+| `sam2` | 仅 `sys.path` 下可 import | 首次报错则 `cd third-party/Grounded-SAM-2 && pip install -e .` |
+| `grounding_dino` CUDA 扩展 | 官方需 nvcc | 本机 GDINO 走 **transformers** 本地 tiny，未编译原版 CUDA 算子 |
+| `dinov2` 浅 clone | 仅 1 commit | 一般够用；需换版本则 `git fetch --unshallow` |
+
+### 4.3 运行依赖
+
+| 项 | 说明 |
+|----|------|
+| NavDP 服务 | 必须先 `navdp_server_geometry.py --port` 与评测脚本一致 |
+| `memory/<scene>/` | 无图 JSON 则导航无法开始 |
+| GPU 内存 | NavDP ckpt + GSAM + DINOv2 同卡易 OOM；建图与 RPC 建议分卡 |
+| 代理 | 服务器 `7897` 常未开；Google 用 **17897**（见 RunLog） |
+
+### 4.4 与上游 README 不一致处（本机刻意为之）
+
+- **不修改**根目录 `construct_graph_total.py` 等 — 路径靠 launch 字符串替换
+- **habitat-sim 0.3.3** vs 部分文档写 0.2.x — 以本仓库 `third-party/habitat-lab` 为准
+- **torch 版本**高于上游 pin — 为 5090 必要代价
+
+---
+
+## 5. 数据与权重（当前）
+
+均已就位，详见 `verify_setup.sh`：
+
+- HM3D val、`hm3d_annotated_basis.scene_dataset_config.json`
+- Instance-ImageNav v3
+- `sam2.1_hiera_large.pt`、`grounding-dino-tiny/`、NavDP `checkpoint-43956navdp-onlyproj.ckpt`
+
+**不需**为 val 评测单独下载 `hm3d-val-semantic-annots`（*.semantic.glb）；MG-Nav 语义来自 RGB + GSAM。
+
+---
+
+## 6. 推荐执行顺序
 
 ```mermaid
 flowchart LR
-  A[数据软链 + semantic config] --> B[conda mgnav + 第三方]
-  B --> C[探索 explore_map]
-  C --> D[建图 construct_graph]
-  D --> E[conda navdp + checkpoint]
-  E --> F[NavDP server :6666]
-  F --> G[launch_mg_nav 评测]
+  A[verify_setup] --> B[launch_construct_graph explore]
+  B --> C[semantic_analyze]
+  C --> D[construct_graph]
+  D --> E[navdp server]
+  E --> F[launch_mg_nav quick]
 ```
 
-单场景 demo：`00810-CrMo8WxCyVb`（上游默认 `SCENE_ID_MAP`）。
+Demo 场景：`00810-CrMo8WxCyVb`（上游 `SCENE_ID_MAP` 默认）。
 
----
+```bash
+# 环境
+bash Note/env/scripts/verify_setup.sh
 
-## 6. 已知坑（来自读码）
+# 建图（mgnav，空闲 GPU）
+CUDA_VISIBLE_DEVICES=3 python Note/results/launch_construct_graph.py \
+  --explore_map --semantic_analyze
+CUDA_VISIBLE_DEVICES=3 python Note/results/launch_construct_graph.py \
+  --construct_graph --floor_idx 0 --min_dis 1.0 --radius 0.5
 
-1. **`construct_graph_total.py` 在 import 时加载 DINOv2/GSAM** — 权重路径必须在 launch 中替换。
-2. **`run_*_quick.py` 使用非公开 localization 模块名** — 仓库仅有 `localization.py`；由 `launch_mg_nav.py` + `repro_imports.py` 在运行时改 import。
-3. **NavDP 必须先起服务**，否则 `socket` 连接失败。
-4. **GPU 占用**：UniGoal 长跑时避免与 MG-Nav 抢同卡（默认 launch 用 GPU 3）。
+# NavDP（navdp，另一终端）
+CUDA_VISIBLE_DEVICES=3 python third-party/NavDP/baselines/navdp/navdp_server_geometry.py \
+  --port 6666 --checkpoint third-party/NavDP/checkpoints/checkpoint-43956navdp-onlyproj.ckpt
+
+# 评测
+CUDA_VISIBLE_DEVICES=3 python Note/results/launch_mg_nav.py --quick \
+  --rpc_port 6666 --eval_episodes 5 --max_total_steps 500
+```
 
 ---
 
 ## 7. 文档索引
 
-- 操作流水：[RunLog.md](./RunLog.md)
-- 变更：[ChangeLog.md](./ChangeLog.md)
-- 代码入口：[CodeSummary.md](./CodeSummary.md)
+| 文档 | 用途 |
+|------|------|
+| [RunLog.md](./RunLog.md) | 按日期的操作、排错、命令 |
+| [env/README.md](./env/README.md) | 安装、数据、第三方、代理 |
+| [CodeSummary.md](./CodeSummary.md) | 仓库逐文件说明 |
+| [ChangeLog.md](./ChangeLog.md) | 本地 git / Note 变更 |

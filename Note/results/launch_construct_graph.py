@@ -18,7 +18,7 @@ import sys
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DATA_ROOT = os.environ.get(
     "MGNAV_DATA_ROOT",
-    os.path.expanduser("~/data/processed/unigoal_datasets"),
+    os.path.expanduser("~/data/processed/mg-nav_datasets"),
 )
 HM3D_ROOT = os.path.join(DATA_ROOT, "scene_datasets", "hm3d_v0.2")
 DATASET_VAL = os.path.join(HM3D_ROOT, "val")
@@ -35,7 +35,7 @@ if not os.path.isfile(SCENE_CONFIG):
     sys.stderr.write(
         f"[WARN] 缺少语义场景配置: {SCENE_CONFIG}\n"
         "  请下载 hm3d-val-semantic-configs-v0.2.tar 解压到 hm3d_v0.2/ 根目录。\n"
-        "  见 Note/env/setup_mgnav.md\n"
+        "  见 Note/env/README.md\n"
     )
 
 # 默认 CLI 覆盖（可被用户追加参数覆盖）
@@ -49,6 +49,26 @@ _inject_default("--dataset_dir", DATASET_VAL)
 _inject_default("--scene_dataset_config_file", SCENE_CONFIG)
 
 import torch  # noqa: E402
+
+
+def _patch_dinov2_py39() -> None:
+    """dinov2 main 使用 PEP604 类型注解，Python 3.9 需 future annotations。"""
+    if sys.version_info >= (3, 10):
+        return
+    dino_root = os.path.join(REPO, "third-party", "dinov2", "dinov2")
+    for rel in ("layers/attention.py", "layers/block.py"):
+        p = os.path.join(dino_root, rel)
+        if not os.path.isfile(p):
+            continue
+        with open(p, encoding="utf-8") as f:
+            txt = f.read()
+        if "from __future__ import annotations" in txt:
+            continue
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("from __future__ import annotations\n" + txt)
+
+
+_patch_dinov2_py39()
 
 _orig_hub = torch.hub.load
 
